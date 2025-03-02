@@ -1,190 +1,154 @@
 import streamlit as st
 import cv2
-import numpy as np
 import mediapipe as mp
+import numpy as np
 import tensorflow as tf
+from tensorflow.keras.models import load_model
 import json
 import os
+from threading import Thread, Lock
+import queue
+import time
+
+class VideoThread(Thread):
+    def __init__(self, recognizer):
+        Thread.__init__(self)
+        self.recognizer = recognizer
+        self.frame_queue = queue.Queue(maxsize=2)
+        self.prediction_queue = queue.Queue(maxsize=2)
+        self.running = True
+        self.daemon = True
+
+    def run(self):
+        video = cv2.VideoCapture(0)
+        try:
+            while self.running:
+                ret, frame = video.read()
+                if ret:
+                    frame = cv2.flip(frame, 1)
+                    result = self.recognizer.process_frame(frame)
+                    
+                    if result:
+                        prediction, confidence = result
+                        cv2.putText(
+                            frame,
+                            f"Prediction: {prediction} ({confidence:.2f})",
+                            (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            1,
+                            (0, 255, 0),
+                            2
+                        )
+                        # Update prediction queue
+                        try:
+                            self.prediction_queue.put_nowait((prediction, confidence))
+                        except queue.Full:
+                            try:
+                                self.prediction_queue.get_nowait()
+                                self.prediction_queue.put_nowait((prediction, confidence))
+                            except queue.Empty:
+                                pass
+
+                    # Update frame queue
+                    try:
+                        self.frame_queue.put_nowait(frame)
+                    except queue.Full:
+                        try:
+                            self.frame_queue.get_nowait()
+                            self.frame_queue.put_nowait(frame)
+                        except queue.Empty:
+                            pass
+                            
+                time.sleep(0.01)  # Small delay to prevent CPU overload
+        finally:
+            video.release()
+
+    def stop(self):
+        self.running = False
 
 class HandGestureRecognizer:
-    def __init__(self, model_path, metadata_path):
-        # Initialize MediaPipe
+    def __init__(self, model_path="model_output/hand_gesture_model.h5", metadata_path="model_output/model_metadata.json"):
+        self.model = load_model(model_path)
+        with open(metadata_path, 'r') as f:
+            self.metadata = json.load(f)
+        
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_detection_confidence=0.5
         )
         
-        # Load the model with custom object scope
-        with tf.keras.utils.custom_object_scope({}):
-            self.model = tf.keras.models.load_model(model_path, compile=False)
-            self.model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        self.labels = {int(k): v for k, v in self.metadata['labels'].items()}
+    
+    def process_frame(self, frame):
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(rgb_frame)
         
-        # Load metadata
-        try:
-            with open(metadata_path, 'r') as f:
-                self.metadata = json.load(f)
-            self.labels = {int(k): v for k, v in self.metadata['labels'].items()}
-        except FileNotFoundError:
-            st.error(f"Metadata file not found at {metadata_path}")
-            self.labels = {}
-        except json.JSONDecodeError:
-            st.error(f"Invalid JSON in metadata file at {metadata_path}")
-            self.labels = {}
-
-    def extract_hand_landmarks(self, frame):
-        try:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.hands.process(frame_rgb)
-            
-            if not results.multi_hand_landmarks:
-                return None
-            
-            landmarks = results.multi_hand_landmarks[0]
-            points = []
-            for landmark in landmarks.landmark:
-                points.extend([landmark.x, landmark.y, landmark.z])
-            
-            return np.array(points)
-        except Exception as e:
-            st.error(f"Error in landmark extraction: {str(e)}")
+        if not results.multi_hand_landmarks:
             return None
+        
+        landmarks = results.multi_hand_landmarks[0]
+        points = []
+        for landmark in landmarks.landmark:
+            points.extend([landmark.x, landmark.y, landmark.z])
+        
+        prediction = self.model.predict(np.array([points]), verbose=0)
+        predicted_class = np.argmax(prediction[0])
+        confidence = prediction[0][predicted_class]
+        
+        return self.labels[predicted_class], confidence
 
-    def predict(self, frame):
-        try:
-            landmarks = self.extract_hand_landmarks(frame)
-            if landmarks is None:
-                return None
-            
-            landmarks = landmarks.reshape(1, -1)
-            prediction = self.model.predict(landmarks, verbose=0)
-            predicted_class = np.argmax(prediction[0])
-            
-            return self.labels.get(predicted_class, "Unknown")
-        except Exception as e:
-            st.error(f"Error in prediction: {str(e)}")
-            return None
+def initialize_session_state():
+    if 'text' not in st.session_state:
+        st.session_state.text = ""
+    if 'recognizer' not in st.session_state:
+        st.session_state.recognizer = HandGestureRecognizer()
+    if 'video_thread' not in st.session_state:
+        st.session_state.video_thread = VideoThread(st.session_state.recognizer)
+        st.session_state.video_thread.start()
+    if 'lock' not in st.session_state:
+        st.session_state.lock = Lock()
+
+def capture_text():
+    try:
+        prediction, _ = st.session_state.video_thread.prediction_queue.get_nowait()
+        with st.session_state.lock:
+            st.session_state.text += prediction
+    except queue.Empty:
+        pass
+
+def clear_text():
+    with st.session_state.lock:
+        st.session_state.text = ""
 
 def main():
-    st.title("Hand Gesture Sentence Builder")
+    st.set_page_config(layout="centered")
+    st.title("Hand Gesture Text Input")
     
-    # Initialize session state with default values
-    if 'sentence' not in st.session_state:
-        st.session_state.sentence = []
-    if 'camera_running' not in st.session_state:
-        st.session_state.camera_running = True
-    if 'last_prediction' not in st.session_state:
-        st.session_state.last_prediction = None
-
-    # Safety function to ensure sentence is always a valid list
-    def ensure_valid_sentence():
-        if not hasattr(st.session_state, 'sentence') or st.session_state.sentence is None:
-            st.session_state.sentence = []
-        if not isinstance(st.session_state.sentence, list):
-            st.session_state.sentence = []
-
-    # Button callbacks with safety checks
-    def on_capture_click():
-        ensure_valid_sentence()
-        if st.session_state.last_prediction:
-            st.session_state.sentence.append(st.session_state.last_prediction)
+    initialize_session_state()
     
-    def on_clear_click():
-        ensure_valid_sentence()
-        st.session_state.sentence = []
-
-    try:
-        # Initialize the recognizer
-        model_path = "model_output/hand_gesture_model.h5"
-        metadata_path = "model_output/model_metadata.json"
+    # Create two columns for layout
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.text_area("Composed Text", st.session_state.text, height=100, key='text_display')
+    
+    with col2:
+        st.button("Capture", on_click=capture_text, key='capture_btn')
+        st.button("Clear", on_click=clear_text, key='clear_btn')
+    
+    # Display video feed
+    frame_placeholder = st.empty()
+    
+    while True:
+        try:
+            frame = st.session_state.video_thread.frame_queue.get_nowait()
+            frame_placeholder.image(frame, channels="BGR", use_container_width=True)
+        except queue.Empty:
+            pass
         
-        if not os.path.exists(model_path):
-            st.error(f"Model file not found at {model_path}")
-            return
-            
-        recognizer = HandGestureRecognizer(model_path, metadata_path)
-        mp_drawing = mp.solutions.drawing_utils
-        mp_hands = mp.solutions.hands
-
-        # Create placeholders
-        frame_placeholder = st.empty()
-        sentence_placeholder = st.empty()
-        prediction_placeholder = st.empty()
-        
-        # Buttons in columns with better spacing
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        # Create buttons with safe callbacks
-        capture_button = col1.button("Capture", on_click=on_capture_click, key="capture_btn")
-        clear_button = col2.button("Clear Sentence", on_click=on_clear_click, key="clear_btn")
-        stop_button = col3.button("Stop Camera", key="stop_btn")
-
-        # Camera handling
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            st.error("Failed to access webcam")
-            return
-
-        while st.session_state.camera_running:
-            ret, frame = cap.read()
-            if not ret:
-                st.error("Failed to capture frame")
-                break
-
-            try:
-                frame = cv2.flip(frame, 1)
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = recognizer.hands.process(frame_rgb)
-                
-                # Draw hand landmarks
-                if results.multi_hand_landmarks:
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(
-                            frame,
-                            hand_landmarks,
-                            mp_hands.HAND_CONNECTIONS,
-                            mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                            mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
-                        )
-                
-                # Get prediction
-                prediction = recognizer.predict(frame)
-                if prediction:
-                    st.session_state.last_prediction = prediction
-                    cv2.putText(frame, f"Detected: {prediction}", (10, 30),
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    prediction_placeholder.markdown(f"**Current Detection:** {prediction}")
-                else:
-                    prediction_placeholder.markdown("**Current Detection:** None")
-
-                # Display the frame
-                frame_placeholder.image(frame, channels="BGR")
-                
-                # Ensure valid sentence before display
-                ensure_valid_sentence()
-                
-                # Display current sentence
-                current_sentence = " ".join(str(word) for word in st.session_state.sentence) if st.session_state.sentence else "(Empty)"
-                sentence_placeholder.markdown(f"**Current Sentence:** {current_sentence}")
-                
-                if stop_button:
-                    st.session_state.camera_running = False
-                    break
-
-            except Exception as e:
-                st.error(f"Error processing frame: {str(e)}")
-                continue
-
-        # Properly release resources
-        cap.release()
-        cv2.destroyAllWindows()
-
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-        if 'cap' in locals():
-            cap.release()
+        time.sleep(0.01)  # Small delay to prevent CPU overload
 
 if __name__ == "__main__":
     main()
