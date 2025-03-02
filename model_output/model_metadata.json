@@ -1,0 +1,31 @@
+{
+    "model_name": "hand_gesture_recognition",
+    "date_trained": "2025-03-02 12:36:27",
+    "number_of_classes": 5,
+    "labels": {
+        "0": "dhoni",
+        "1": "Hello",
+        "2": "is",
+        "3": "my",
+        "4": "name"
+    },
+    "input_shape": [
+        63
+    ],
+    "training_params": {
+        "epochs": 50,
+        "batch_size": 32,
+        "validation_split": 0.2
+    },
+    "training_results": {
+        "final_accuracy": 1.0,
+        "final_val_accuracy": 1.0,
+        "final_loss": 0.026784272864460945,
+        "final_val_loss": 0.006393386982381344
+    },
+    "preprocessing": {
+        "mediapipe_confidence": 0.5,
+        "num_landmarks": 21,
+        "coordinates_per_landmark": 3
+    }
+}
