@@ -1,0 +1,37 @@
+{
+    "model_name": "hand_gesture_recognition",
+    "date_trained": "2025-03-02 12:58:39",
+    "number_of_classes": 11,
+    "labels": {
+        "0": "0",
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+        "5": "5",
+        "6": "6",
+        "7": "7",
+        "8": "8",
+        "9": "9",
+        "10": "Numbers"
+    },
+    "input_shape": [
+        63
+    ],
+    "training_params": {
+        "epochs": 50,
+        "batch_size": 32,
+        "validation_split": 0.2
+    },
+    "training_results": {
+        "final_accuracy": 0.977319598197937,
+        "final_val_accuracy": 0.9836065769195557,
+        "final_loss": 0.15444226562976837,
+        "final_val_loss": 0.0944390594959259
+    },
+    "preprocessing": {
+        "mediapipe_confidence": 0.5,
+        "num_landmarks": 21,
+        "coordinates_per_landmark": 3
+    }
+}
