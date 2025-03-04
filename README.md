@@ -1,4 +1,4 @@
-# Hand Gesture Text Input
+# Hand Gesture encoding and decoding with binary for character Recognition
 
 A real-time hand gesture recognition system that converts hand gestures into text input. Make hand gestures in front of your webcam to type letters!
 
