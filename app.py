@@ -88,11 +88,27 @@ class HandGestureRecognizer:
         if not results.multi_hand_landmarks:
             return None
         
+        # Draw hand landmarks on the frame
         landmarks = results.multi_hand_landmarks[0]
-        points = []
-        for landmark in landmarks.landmark:
-            points.extend([landmark.x, landmark.y, landmark.z])
+        mp.solutions.drawing_utils.draw_landmarks(
+            frame,
+            landmarks,
+            self.mp_hands.HAND_CONNECTIONS
+        )
         
+        # Extract and normalize coordinates relative to wrist
+        wrist = landmarks.landmark[0]
+        points = []
+        
+        for landmark in landmarks.landmark:
+            # Normalize coordinates relative to wrist position
+            points.extend([
+                landmark.x - wrist.x,
+                landmark.y - wrist.y,
+                landmark.z - wrist.z
+            ])
+        
+        # Make prediction
         prediction = self.model.predict(np.array([points]), verbose=0)
         predicted_class = np.argmax(prediction[0])
         confidence = prediction[0][predicted_class]

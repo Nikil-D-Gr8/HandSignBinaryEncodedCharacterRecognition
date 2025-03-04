@@ -25,7 +25,7 @@ class HandGestureTrainer:
         self.model = None
         self.model_metadata = {}
 
-    def extract_hand_landmarks(self, image_path):
+    def extract_hand_features(self, image_path):
         image = cv2.imread(image_path)
         if image is None:
             return None
@@ -36,12 +36,20 @@ class HandGestureTrainer:
         if not results.multi_hand_landmarks:
             return None
         
+        # Extract and normalize coordinates relative to wrist
         landmarks = results.multi_hand_landmarks[0]
+        wrist = landmarks.landmark[0]
         points = []
-        for landmark in landmarks.landmark:
-            points.extend([landmark.x, landmark.y, landmark.z])
         
-        return np.array(points)
+        for landmark in landmarks.landmark:
+            # Normalize coordinates relative to wrist position
+            points.extend([
+                landmark.x - wrist.x,
+                landmark.y - wrist.y,
+                landmark.z - wrist.z
+            ])
+        
+        return points
 
     def load_dataset(self):
         print("Loading and processing dataset...")
@@ -58,10 +66,10 @@ class HandGestureTrainer:
                     continue
                     
                 image_path = os.path.join(folder_path, image_file)
-                landmarks = self.extract_hand_landmarks(image_path)
+                features = self.extract_hand_features(image_path)
                 
-                if landmarks is not None and len(landmarks) == 63:  # 21 landmarks * 3 coordinates
-                    self.X.append(landmarks)
+                if features is not None and len(features) == 63:  # 21 landmarks × 3 coordinates
+                    self.X.append(features)
                     self.y.append(idx)
 
         self.X = np.array(self.X)
@@ -71,8 +79,11 @@ class HandGestureTrainer:
         return len(self.labels)
 
     def build_model(self, num_classes):
+        # Input shape: 21 landmarks × 3 coordinates = 63 features
+        input_dim = 63
+        
         self.model = Sequential([
-            Dense(128, activation='relu', input_shape=(63,)),
+            Dense(128, activation='relu', input_shape=(input_dim,)),
             Dropout(0.3),
             Dense(64, activation='relu'),
             Dropout(0.2),

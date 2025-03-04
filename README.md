@@ -1,134 +1,89 @@
 # Hand Gesture Text Input
 
-A real-time hand gesture recognition system that converts hand gestures into text input using MediaPipe, TensorFlow, and Streamlit. The application uses your webcam to detect hand gestures and convert them into text characters or words.
+A real-time hand gesture recognition system that converts hand gestures into text input. Make hand gestures in front of your webcam to type letters!
 
-## Features
+## Quick Start
 
-- Real-time hand gesture recognition
-- Live webcam feed with gesture predictions
-- Text composition through hand gestures
-- Simple and intuitive user interface
-- Multi-threaded processing for smooth performance
+1. Install Python 3.8 or higher
+2. Create and activate virtual environment:
+   ```
+   python -m venv env
+   # Windows
+   .\env\Scripts\activate
+   # Linux/MacOS
+   source env/bin/activate
+   ```
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+4. Run the app:
+   ```
+   streamlit run app.py
+   ```
 
-## Prerequisites
+## Training Your Own Model
 
-- Python 3.8 or higher
-- Webcam
-- Windows/Linux/MacOS
+1. Create dataset structure:
+   ```
+   dataset/
+       A/
+           image1.jpg
+           image2.jpg
+       B/
+           image1.jpg
+           ...
+   ```
+2. Run training:
+   ```
+   python train.py
+   ```
 
-## Installation
+## How It Works
 
-1. Clone the repository:
+### Hand Detection & Feature Extraction
+- Uses MediaPipe to detect 21 hand landmarks in real-time
+- Each landmark has 3 coordinates (x, y, z)
+- Coordinates are normalized relative to wrist position for position-invariance
+- Results in 63 features (21 landmarks × 3 coordinates)
 
+### Model Architecture
+- Input: 63 normalized coordinates
+- Hidden Layer 1: 128 neurons (ReLU) with 30% dropout
+- Hidden Layer 2: 64 neurons (ReLU) with 20% dropout
+- Output: 26 classes (A-Z) with Softmax
 
-2. Create a virtual environment (recommended):
-```bash
-python -m venv env
-```
+### Streamlit App Flow
+1. Video Processing:
+   - Continuous webcam feed capture in background thread
+   - Frame queue maintains latest video frames
+   - Prediction queue stores recent gesture predictions
+   - Thread-safe operations using locks
 
-3. Activate the virtual environment:
-- Windows:
-  ```bash
-  .\env\Scripts\activate
-  ```
-- Linux/MacOS:
-  ```bash
-  source env/bin/activate
-  ```
+2. User Interface:
+   - Live video display showing hand landmarks
+   - Text composition area showing captured letters
+   - Control buttons:
+     - "Capture": Adds current gesture prediction to text
+     - "Clear": Resets the text field
 
-4. Install the required packages:
-```bash
-pip install -r requirements.txt
-```
+3. Real-time Processing:
+   - Each frame goes through:
+     1. Hand landmark detection (MediaPipe)
+     2. Coordinate normalization
+     3. Model prediction
+     4. Visual feedback (drawing landmarks)
+   - Predictions and confidence scores shown on video
+   - Multi-threaded design prevents UI freezing
 
-## Usage
+4. Text Composition:
+   - Click "Capture" when desired gesture is recognized
+   - Predicted letter appears in text area
+   - Continuous predictions allow gesture adjustment
+   - Thread-safe text updates prevent data races
 
-### Training the Model
-
-1. Prepare your dataset:
-   - Create a folder named `dataset` in the project root
-   - Inside `dataset`, create subfolders for each gesture/character
-   - Each subfolder should be named after the character it represents (e.g., "A", "B", "C")
-   - Add training images to each subfolder (recommended: 50+ images per gesture)
-
-Example dataset structure:
-```
-dataset/
-    A/
-        image1.jpg
-        image2.jpg
-        ...
-    B/
-        image1.jpg
-        image2.jpg
-        ...
-```
-
-2. Capture training data:
-   - Use a webcam to capture hand gestures
-   - Ensure good lighting and a clean background
-   - Vary hand positions slightly for better generalization
-   - Include different angles and distances
-
-3. Run the training script:
-```bash
-python train.py
-```
-
-The training process:
-- Extracts hand landmarks using MediaPipe (21 landmarks × 3 coordinates = 63 features)
-- Processes all images in the dataset
-- Trains a neural network with the following architecture:
-  - Input layer: 63 features
-  - Hidden layer 1: 128 neurons (ReLU)
-  - Dropout layer 1: 30% dropout
-  - Hidden layer 2: 64 neurons (ReLU)
-  - Dropout layer 2: 20% dropout
-  - Output layer: Softmax (number of classes)
-
-The trained model and metadata will be saved in the `model_output` directory.
-
-### Running the Application
-
-1. Start the Streamlit app:
-```bash
-streamlit run app.py
-```
-
-2. The application will open in your default web browser.
-
-### Using the Application
-
-1. Position your hand in front of the webcam
-2. Make gestures corresponding to the characters you want to input
-3. Click "Capture" to add the recognized gesture to the text
-4. Use "Clear" to reset the text field
-
-## Project Structure
-
-```
-├── app.py              # Main application file
-├── train.py           # Model training script
-├── requirements.txt   # Python dependencies
-├── dataset/          # Training dataset directory
-├── model_output/     # Trained model files
-└── README.md         # Project documentation
-```
-
-## Technical Details
-
-- **MediaPipe**: Used for hand landmark detection
-- **TensorFlow**: Powers the gesture recognition model
-- **Streamlit**: Provides the web interface
-- **OpenCV**: Handles video capture and image processing
-- **Multi-threading**: Ensures smooth performance of video processing and UI
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- MediaPipe team for their hand landmark detection solution
-- TensorFlow team for their machine learning framework
-- Streamlit team for their amazing web app framework
+### Technologies
+- MediaPipe: Hand landmark detection
+- TensorFlow: Neural network model
+- Streamlit: Web interface
+- OpenCV: Video capture
